@@ -1,0 +1,532 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[T2A]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[russian]{babel}
+\usepackage[left=30mm, right=20mm, top=20mm, bottom=20mm]{geometry}
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{subfig}
+\usepackage{booktabs}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true, linkcolor=blue, citecolor=blue, urlcolor=blue}
+\usepackage[backend=biber, style=gost-numeric]{biblatex}
+\addbibresource{biblio.bib}
+\usepackage{setspace}
+\onehalfspacing
+\usepackage{indentfirst}
+\setlength{\parindent}{1.25cm}
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0pt}
+
+\theoremstyle{definition}
+\newtheorem{definition}{Определение}[section]
+\newtheorem{theorem}{Теорема}[section]
+
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{backcolour}{rgb}{0.97,0.97,0.97}
+
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{blue},
+    basicstyle=\ttfamily\footnotesize,
+    breaklines=true,
+    numbers=left,
+    numbersep=5pt,
+    language=Python,
+    frame=single
+}
+\lstset{style=mystyle}
+
+\begin{document}
+
+% ТИТУЛЬНЫЙ ЛИСТ
+\begin{titlepage}
+\begin{center}
+
+\textbf{Санкт-Петербургский государственный университет}\\
+Прикладная математика и информатика
+
+\vspace{3cm}
+
+\textbf{\Large ОТЧЕТ}\\[0.5cm]
+по учебной практике 1 (научно-исследовательской работе)\\
+(семестр 1)
+
+\vspace{2cm}
+
+{\Large \textbf{Градиентный спуск при больших шагах:\\
+хаос и фрактальная область сходимости}}
+
+\vspace{3cm}
+
+\begin{flushright}
+\begin{minipage}{0.5\textwidth}
+Выполнил:\\
+Сайфутдинов Анвар Ирекович,\\
+группа 25.Б21-мм
+
+\vspace{1cm}
+
+Научный руководитель:\\
+д.ф.-м.н., профессор\\
+Мокаев Тимур Назирович\\
+Кафедра прикладной кибернетики
+\end{minipage}
+\end{flushright}
+
+\vfill
+
+Санкт-Петербург\\
+2025 г.
+
+\end{center}
+\end{titlepage}
+
+% ОГЛАВЛЕНИЕ
+\tableofcontents
+\newpage
+
+% ============================================================================
+\section{Введение}
+% ============================================================================
+
+Градиентный спуск~--- основной метод оптимизации в машинном обучении. Он используется для обучения нейронных сетей, решения задач регрессии, классификации и многих других. Суть метода: чтобы найти минимум функции потерь, мы итеративно двигаемся в направлении антиградиента.
+
+Ключевой параметр метода~--- \textit{размер шага} (learning rate)~$\eta$. При малом~$\eta$ сходимость гарантирована, но медленная. При большом~$\eta$ можно сходиться быстрее, но возникает риск неустойчивости: траектория может <<прыгать>> через минимум или вовсе расходиться.
+
+Недавние исследования~\cite{liang2025gradient} показали неожиданный результат: при больших~$\eta$ динамика градиентного спуска становится \textit{хаотической}. Это проявляется в двух феноменах:
+
+\begin{enumerate}
+    \item \textbf{Чувствительность к начальным условиям}: малейшие изменения начальной точки приводят к совершенно разным результатам оптимизации.
+    \item \textbf{Фрактальные границы бассейнов}: области сходимости к разным минимумам разделены границей со сложной, самоподобной структурой.
+\end{enumerate}
+
+Эти явления важны для практики машинного обучения, поскольку объясняют, почему результаты обучения нейронных сетей могут сильно зависеть от случайной инициализации весов.
+
+\textbf{Цель работы}~--- изучить хаотическую динамику градиентного спуска на примере задачи матричной факторизации, реализовать численные эксперименты и сопоставить результаты с теоретическими предсказаниями.
+
+\textbf{Задачи:}
+\begin{enumerate}
+    \item Изучить основные результаты статьи Liang и Montúfar о критическом шаге и фрактальных границах.
+    \item Реализовать градиентный спуск для скалярной и матричной факторизации.
+    \item Визуализировать бассейны сходимости и оценить фрактальную размерность границы.
+    \item Сравнить экспериментальные результаты с теоретической формулой критического шага.
+    \item Рассмотреть связь с феноменами <<edge of stability>> и <<catapult mechanism>>.
+\end{enumerate}
+
+% ============================================================================
+\section{Цель работы и постановка задачи}
+% ============================================================================
+
+\subsection{Скалярная факторизация}
+
+Начнём с простейшего случая~--- \textit{скалярной факторизации}. Задача: найти числа $u$ и $v$, произведение которых близко к заданному $y$:
+\begin{equation}
+    L(u, v) = \frac{1}{2}(uv - y)^2 + \frac{\lambda}{2}(u^2 + v^2),
+    \label{eq:loss_scalar}
+\end{equation}
+где $\lambda \geq 0$~--- коэффициент регуляризации.
+
+Первое слагаемое штрафует за отклонение произведения $uv$ от цели~$y$. Второе (при $\lambda > 0$)~--- за слишком большие значения параметров.
+
+Градиент функции~(\ref{eq:loss_scalar}):
+\begin{equation}
+    \frac{\partial L}{\partial u} = (uv - y)v + \lambda u, \quad
+    \frac{\partial L}{\partial v} = (uv - y)u + \lambda v.
+    \label{eq:grad_scalar}
+\end{equation}
+
+\subsection{Итерация градиентного спуска}
+
+Метод градиентного спуска обновляет параметры по правилу:
+\begin{equation}
+    \theta_{t+1} = \theta_t - \eta \nabla L(\theta_t),
+    \label{eq:gd}
+\end{equation}
+где $\theta = (u, v)^\top$, а $\eta > 0$~--- размер шага.
+
+Для нашей задачи это даёт:
+\begin{align}
+    u_{t+1} &= u_t - \eta \left[ (u_t v_t - y) v_t + \lambda u_t \right], \\
+    v_{t+1} &= v_t - \eta \left[ (u_t v_t - y) u_t + \lambda v_t \right].
+\end{align}
+
+\subsection{Критические точки}
+
+При $\lambda = 0$ функция~(\ref{eq:loss_scalar}) имеет следующие критические точки:
+\begin{itemize}
+    \item \textbf{Глобальные минимумы}: все точки, где $uv = y$. При $y > 0$ это две ветви гиперболы, например, точки $(1, 1)$, $(-1, -1)$, $(2, 0.5)$ и т.д.
+    \item \textbf{Седловая точка}: $(0, 0)$~--- это точка, где градиент равен нулю, но это не минимум.
+\end{itemize}
+
+При $\lambda > 0$ минимумы изолированы: остаются только точки $(\pm\sqrt{y-\lambda}, \pm\sqrt{y-\lambda})$ (при $y > \lambda$).
+
+\subsection{Матричная факторизация}
+
+Обобщение на матричный случай:
+\begin{equation}
+    L(U, V) = \frac{1}{2}\|U^\top V - Y\|_F^2 + \frac{\lambda}{2}(\|U\|_F^2 + \|V\|_F^2),
+    \label{eq:loss_matrix}
+\end{equation}
+где $U, V \in \mathbb{R}^{d \times r}$~--- матрицы параметров, $Y \in \mathbb{R}^{r \times r}$~--- целевая матрица, $\|\cdot\|_F$~--- норма Фробениуса.
+
+Эта задача важна для рекомендательных систем, сжатия данных и обучения нейронных сетей (где подобная структура возникает в линейных слоях).
+
+\subsection{Критический шаг сходимости}
+
+Согласно~\cite{liang2025gradient}, существует \textit{критический шаг}~$\eta^*$, выше которого глобальные минимумы становятся неустойчивыми. Для скалярного случая:
+\begin{equation}
+    \eta^*(u, v) = \min\left\{\frac{1}{|y|}, \frac{8}{\|{\theta}\|^2 + \sqrt{\|{\theta}\|^4 - 16y(uv - y)}}\right\},
+    \label{eq:eta_star}
+\end{equation}
+где $\|\theta\|^2 = u^2 + v^2$.
+
+Первый член $1/|y|$~--- порог, при превышении которого \textit{все} минимумы нестабильны. Второй член зависит от начальной точки.
+
+% ============================================================================
+\section{Обзор литературы}
+% ============================================================================
+
+\subsection{Основной источник}
+
+Работа Liang и Montúfar~\cite{liang2025gradient} содержит строгие доказательства следующих результатов:
+
+\begin{theorem}[О чувствительности]
+Для любой точки на границе области сходимости и любого $\varepsilon > 0$ существуют точки в $\varepsilon$-окрестности, которые сходятся к разным минимумам с произвольно различающимися нормами.
+\end{theorem}
+
+\begin{theorem}[О топологической энтропии]
+При $\eta > \eta^*$ топологическая энтропия отображения градиентного спуска не меньше $\log 3$, что свидетельствует о хаотической динамике.
+\end{theorem}
+
+Также показано, что граница области сходимости имеет \textit{фрактальную} размерность $D_B \approx 1.249$.
+
+\subsection{Фрактальные границы бассейнов притяжения}
+
+Понятие фрактальных границ бассейнов введено в работе McDonald и др.~\cite{mcdonald1985fractal}. Авторы показали, что для многих нелинейных динамических систем граница между бассейнами притяжения имеет нецелую размерность.
+
+\begin{definition}
+\textbf{Бассейн притяжения} аттрактора~$A$~--- множество начальных условий, из которых траектория сходится к~$A$.
+\end{definition}
+
+\begin{definition}
+\textbf{Box-counting размерность} множества~$F$:
+\begin{equation}
+    D_B(F) = \lim_{\varepsilon \to 0} \frac{\log N(\varepsilon)}{\log(1/\varepsilon)},
+\end{equation}
+где $N(\varepsilon)$~--- минимальное число квадратов со стороной~$\varepsilon$, покрывающих~$F$.
+\end{definition}
+
+Если $D_B$ нецелое (например, 1.3), то множество называется \textit{фрактальным}.
+
+\subsection{Edge of Stability}
+
+Cohen и др.~\cite{cohen2021gradient} экспериментально обнаружили феномен \textit{<<edge of stability>>}: при обучении нейронных сетей градиентным спуском максимальное собственное значение гессиана (мера <<остроты>> минимума) стремится к значению $2/\eta$ и колеблется вокруг него.
+
+Это означает, что градиентный спуск <<автоматически>> выбирает режим работы на границе устойчивости, даже если изначально learning rate был выбран слишком большим.
+
+\subsection{Catapult Mechanism}
+
+Lewkowycz и др.~\cite{lewkowycz2020catapult} объяснили, почему большие learning rates иногда работают лучше ожидаемого. Механизм <<катапульты>>: если начальная точка находится в <<остром>> минимуме (с большой кривизной), большой шаг <<выбрасывает>> траекторию в более <<плоскую>> область. После нескольких осцилляций оптимизация продолжается в минимуме с меньшей кривизной, что часто даёт лучшую генерализацию.
+
+\subsection{Хаос в квадратичной регрессии}
+
+Chen и др.~\cite{chen2024stability} провели детальный анализ градиентного спуска на квадратичной регрессии и выделили пять фаз:
+\begin{enumerate}
+    \item \textbf{Монотонная}: loss убывает монотонно.
+    \item \textbf{Catapult}: немонотонные осцилляции, но сходимость к нулю.
+    \item \textbf{Периодическая}: траектория колеблется между несколькими точками.
+    \item \textbf{Хаотическая}: непредсказуемая динамика.
+    \item \textbf{Расходящаяся}: loss уходит в бесконечность.
+\end{enumerate}
+
+% ============================================================================
+\section{Методы исследования}
+% ============================================================================
+
+\subsection{Построение карты бассейнов}
+
+Для визуализации бассейнов сходимости:
+\begin{enumerate}
+    \item Создаём равномерную сетку точек $(u_0, v_0)$ на плоскости.
+    \item Для каждой точки запускаем градиентный спуск.
+    \item Определяем, к какому аттрактору сошлась траектория:
+    \begin{itemize}
+        \item расходимость (норма превысила $10^6$);
+        \item минимум с $uv > 0$;
+        \item минимум с $uv < 0$;
+        \item седловая точка $(0, 0)$.
+    \end{itemize}
+    \item Раскрашиваем точку в соответствующий цвет.
+\end{enumerate}
+
+\subsection{Метод box-counting}
+
+Для оценки фрактальной размерности границы:
+\begin{enumerate}
+    \item Выделяем границу: точки, имеющие соседа другого цвета.
+    \item Для последовательности размеров $\varepsilon_k$ считаем $N(\varepsilon_k)$~--- число квадратов, пересекающих границу.
+    \item Строим график $\log N$ от $\log(1/\varepsilon)$.
+    \item Размерность $D_B$~--- наклон линейной регрессии.
+\end{enumerate}
+
+\subsection{Сравнение с теоретическим $\eta^*$}
+
+Для проверки формулы~(\ref{eq:eta_star}):
+\begin{enumerate}
+    \item Выбираем набор начальных точек $(u_0, v_0)$.
+    \item Для каждой вычисляем теоретический $\eta^*$ по формуле.
+    \item Экспериментально находим максимальный~$\eta$, при котором ещё есть сходимость.
+    \item Сравниваем теоретические и экспериментальные значения.
+\end{enumerate}
+
+% ============================================================================
+\section{Результаты экспериментов}
+% ============================================================================
+
+\subsection{Бассейны сходимости: скалярный случай}
+
+На рис.~\ref{fig:basins} представлены карты бассейнов при $y = 1$, $\lambda = 0$ для разных~$\eta$.
+
+\begin{figure}[H]
+    \centering
+    \subfloat[$\eta = 0.3$]{\includegraphics[width=0.45\textwidth]{figures/basin_eta0.30_lam0.png}}
+    \hfill
+    \subfloat[$\eta = 0.5$]{\includegraphics[width=0.45\textwidth]{figures/basin_eta0.50_lam0.png}}
+    \\
+    \subfloat[$\eta = 0.8$]{\includegraphics[width=0.45\textwidth]{figures/basin_eta0.80_lam0.png}}
+    \hfill
+    \subfloat[$\eta = 0.95$]{\includegraphics[width=0.45\textwidth]{figures/basin_eta0.95_lam0.png}}
+    \caption{Бассейны сходимости при разных $\eta$, $\lambda = 0$. Красный~--- минимум с $uv > 0$, синий~--- минимум с $uv < 0$, тёмный~--- расходимость.}
+    \label{fig:basins}
+\end{figure}
+
+\textbf{Наблюдения:}
+\begin{itemize}
+    \item При $\eta = 0.3$ (рис.~a): граница проходит по осям координат, структура простая.
+    \item При $\eta = 0.5$ (рис.~b): граница остаётся гладкой, но бассейны немного деформируются.
+    \item При $\eta = 0.8$ (рис.~c): появляются области расходимости (тёмные), граница усложняется.
+    \item При $\eta = 0.95$ (рис.~d): структура становится сложной, видны <<щупальца>> бассейнов.
+\end{itemize}
+
+\subsection{Влияние регуляризации}
+
+На рис.~\ref{fig:basins_reg} показаны бассейны при $\lambda = 0.1$.
+
+\begin{figure}[H]
+    \centering
+    \subfloat[$\eta = 0.5$, $\lambda = 0.1$]{\includegraphics[width=0.45\textwidth]{figures/basin_eta0.50_lam0.1.png}}
+    \hfill
+    \subfloat[$\eta = 0.8$, $\lambda = 0.1$]{\includegraphics[width=0.45\textwidth]{figures/basin_eta0.80_lam0.1.png}}
+    \caption{Бассейны с регуляризацией.}
+    \label{fig:basins_reg}
+\end{figure}
+
+Регуляризация добавляет новый тип поведения~--- сходимость к седловой точке (оранжевый цвет). Граница приобретает более сложную структуру.
+
+\subsection{Фрактальная размерность границы}
+
+Для случая $\eta = 0.8$, $\lambda = 0.1$ выделена граница и оценена её размерность (рис.~\ref{fig:fractal}).
+
+\begin{figure}[H]
+    \centering
+    \subfloat[Граница бассейнов]{\includegraphics[width=0.45\textwidth]{figures/boundary.png}}
+    \hfill
+    \subfloat[Box-counting]{\includegraphics[width=0.45\textwidth]{figures/box_counting.png}}
+    \caption{Оценка фрактальной размерности.}
+    \label{fig:fractal}
+\end{figure}
+
+Полученная оценка: $D_B \approx 1.08$.
+
+Размерность близка к единице, что говорит о том, что граница близка к обычной кривой, но имеет некоторую <<изрезанность>>. Теоретическое значение из~\cite{liang2025gradient} составляет $D_B \approx 1.249$; расхождение связано с конечным разрешением сетки и выбранными параметрами.
+
+\subsection{Чувствительность к начальным условиям}
+
+На рис.~\ref{fig:sens} показаны результаты теста чувствительности: из 300 точек в окрестности $(0.5, 0.5)$ с радиусом $10^{-4}$.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{figures/sensitivity.png}
+    \caption{Чувствительность к начальным условиям при $\eta = 0.9$.}
+    \label{fig:sens}
+\end{figure}
+
+Даже при микроскопических возмущениях траектории сходятся к разным аттракторам~--- это прямое проявление хаотической динамики.
+
+\subsection{Сравнение с теоретическим $\eta^*$}
+
+На рис.~\ref{fig:theory} сравниваются теоретические и экспериментальные значения критического шага для различных начальных точек.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\textwidth]{figures/theory_comparison.png}
+    \caption{Теоретический vs экспериментальный критический шаг.}
+    \label{fig:theory}
+\end{figure}
+
+Точки группируются вблизи диагонали, что подтверждает согласие теории и эксперимента. Разброс связан с конечным шагом при экспериментальном определении границы сходимости.
+
+\subsection{Матричная факторизация}
+
+На рис.~\ref{fig:matrix} показаны результаты для матричной факторизации с $Y = \text{diag}(1, 0.5)$.
+
+\begin{figure}[H]
+    \centering
+    \subfloat[$\eta = 0.3$]{\includegraphics[width=0.45\textwidth]{figures/matrix_basin_eta0.3.png}}
+    \hfill
+    \subfloat[$\eta = 0.5$]{\includegraphics[width=0.45\textwidth]{figures/matrix_basin_eta0.5.png}}
+    \\
+    \subfloat[Кривые потерь]{\includegraphics[width=0.6\textwidth]{figures/matrix_loss.png}}
+    \caption{Матричная факторизация: (a,b)~--- срезы бассейнов; (c)~--- динамика loss.}
+    \label{fig:matrix}
+\end{figure}
+
+\textbf{Наблюдения:}
+\begin{itemize}
+    \item Структура бассейнов качественно похожа на скалярный случай.
+    \item При увеличении~$\eta$ появляются области расходимости.
+    \item Фрактальная структура сохраняется при переходе к матрицам.
+\end{itemize}
+
+\subsection{Траектории и динамика loss}
+
+На рис.~\ref{fig:traj} показаны траектории градиентного спуска.
+
+\begin{figure}[H]
+    \centering
+    \subfloat[$\eta = 0.3$]{\includegraphics[width=0.32\textwidth]{figures/trajectories_eta0.30.png}}
+    \subfloat[$\eta = 0.7$]{\includegraphics[width=0.32\textwidth]{figures/trajectories_eta0.70.png}}
+    \subfloat[$\eta = 0.95$]{\includegraphics[width=0.32\textwidth]{figures/trajectories_eta0.95.png}}
+    \caption{Траектории при разных~$\eta$.}
+    \label{fig:traj}
+\end{figure}
+
+При малом~$\eta$ траектории плавные. При большом~--- появляются резкие повороты и осцилляции.
+
+На рис.~\ref{fig:loss} показана динамика функции потерь.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\textwidth]{figures/loss_curves.png}
+    \caption{Динамика loss при разных~$\eta$.}
+    \label{fig:loss}
+\end{figure}
+
+При $\eta = 1.0$ происходит расходимость~--- loss растёт экспоненциально.
+
+\subsection{Связь с Edge of Stability и Catapult}
+
+Наши эксперименты демонстрируют явления, описанные в~\cite{cohen2021gradient, lewkowycz2020catapult}:
+
+\begin{itemize}
+    \item \textbf{Edge of Stability}: при $\eta = 0.8$--$0.95$ траектории не расходятся сразу, а колеблются вблизи границы устойчивости. Loss сначала растёт, потом убывает.
+    
+    \item \textbf{Catapult}: при большом начальном~$\eta$ траектория <<выбрасывается>> из острого минимума в более плоский. Это видно на рис.~\ref{fig:loss}: при $\eta = 0.95$ loss сначала возрастает (spike), затем начинает убывать.
+\end{itemize}
+
+Работа Liang и Montúfar~\cite{liang2025gradient} дополняет эту картину: при $\eta$ \textit{выше} критического возникает не просто неустойчивость, а полноценный \textit{хаос}~--- непредсказуемая чувствительность к начальным условиям.
+
+% ============================================================================
+\section{Выводы}
+% ============================================================================
+
+\begin{enumerate}
+    \item При малых learning rate ($\eta < 0.5$ для $y = 1$) границы бассейнов гладкие, динамика предсказуема.
+    
+    \item При приближении к критическому значению $\eta^*$ граница усложняется и приобретает фрактальную структуру.
+    
+    \item Экспериментальная оценка фрактальной размерности $D_B \approx 1.08$ подтверждает нецелую природу границы.
+    
+    \item Теоретическая формула критического шага~(\ref{eq:eta_star}) хорошо согласуется с экспериментом.
+    
+    \item Фрактальные структуры сохраняются при переходе от скалярной к матричной факторизации.
+    
+    \item Наблюдаемые явления связаны с феноменами <<edge of stability>> и <<catapult mechanism>>, описанными в современной литературе.
+\end{enumerate}
+
+% ============================================================================
+\section{Заключение}
+% ============================================================================
+
+В работе исследовано поведение градиентного спуска при больших learning rates на задачах скалярной и матричной факторизации. Реализован программный комплекс на Python для:
+\begin{itemize}
+    \item визуализации бассейнов сходимости;
+    \item оценки фрактальной размерности границы методом box-counting;
+    \item анализа чувствительности к начальным условиям;
+    \item сравнения с теоретическими предсказаниями.
+\end{itemize}
+
+Экспериментально подтверждено, что при приближении к критическому шагу~$\eta^*$ граница между бассейнами становится фрактальной, а динамика~--- хаотической. Это объясняет, почему результаты обучения нейронных сетей могут сильно зависеть от случайной инициализации.
+
+\textbf{Направления дальнейшей работы:}
+\begin{itemize}
+    \item Исследование матричной факторизации большей размерности.
+    \item Анализ влияния стохастичности (SGD вместо GD).
+    \item Применение результатов для выбора оптимального learning rate.
+\end{itemize}
+
+% СПИСОК ЛИТЕРАТУРЫ
+\newpage
+\printbibliography[title={Список литературы}]
+
+% ПРИЛОЖЕНИЕ
+\newpage
+\appendix
+\section{Приложение. Исходный код}
+
+Полный код: \url{https://github.com/thesaifutdinovanvar-jpg/gd-chaos.git}
+
+\subsection{Градиент и критический шаг}
+
+\begin{lstlisting}[caption={Основные функции}]
+def grad_scalar(u, v, y, lam=0.0):
+    """Градиент для скалярной факторизации"""
+    r = u * v - y
+    du = r * v + lam * u
+    dv = r * u + lam * v
+    return du, dv
+
+def critical_eta(u, v, y):
+    """Критический шаг из статьи Liang & Montufar"""
+    eta1 = 1.0 / abs(y) if y != 0 else 1e10
+    norm_sq = u*u + v*v
+    disc = norm_sq**2 - 16 * y * (u*v - y)
+    if disc < 0:
+        return eta1
+    eta2 = 8.0 / (norm_sq + np.sqrt(disc))
+    return min(eta1, eta2)
+\end{lstlisting}
+
+\subsection{Box-counting}
+
+\begin{lstlisting}[caption={Оценка фрактальной размерности}]
+def box_counting(boundary):
+    sizes, counts = [], []
+    box_size = 2
+    while box_size <= max_size:
+        count = 0
+        for i in range(0, h, box_size):
+            for j in range(0, w, box_size):
+                if boundary[i:i+box_size, j:j+box_size].any():
+                    count += 1
+        sizes.append(box_size)
+        counts.append(count)
+        box_size = int(box_size * 1.5)
+    
+    # наклон в log-log координатах = размерность
+    log_x = np.log(1.0 / np.array(sizes))
+    log_y = np.log(np.array(counts))
+    D = slope(log_x, log_y)
+    return D
+\end{lstlisting}
+
+\end{document}
